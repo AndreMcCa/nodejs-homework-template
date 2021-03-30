@@ -1,5 +1,6 @@
 const passport = require("passport");
 require("../config/passports");
+
 const {HttpCode} = require("./constants");
 
 const guard = (req, res, next) => {

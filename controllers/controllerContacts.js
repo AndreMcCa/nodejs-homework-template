@@ -1,4 +1,5 @@
 const Contacts = require("../model/index");
+const {HttpCode} = require("../helpers/constants");
 
 const listContacts = async (req, res, next) => {
   try {
@@ -44,15 +45,21 @@ const addContact = async (req, res, next) => {
   try {
     const userId = req.user.id;
     const contact = await Contacts.addContact({...req.body, owner: userId});
-    return res.status(201).json({
+    return res.status(HttpCode.CREATED).json({
       status: "success",
-      code: 201,
+      code: HttpCode.CREATED,
       data: {
         contact,
       },
     });
-  } catch (e) {
-    next(e);
+  } catch (error) {
+    if (error.name === "ValidationError" || error.name === "MongoError") {
+      return next({
+        status: HttpCode.BAD_REQUEST,
+        message: error.message.replace(/"/g, ""),
+      });
+    }
+    next(error);
   }
 };
 
