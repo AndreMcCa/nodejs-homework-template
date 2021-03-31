@@ -1,14 +1,16 @@
 const jwt = require("jsonwebtoken");
 const path = require("path");
 const fs = require("fs").promises;
-const Jimp = require("jimp");
+// const Jimp = require("jimp");
 require("dotenv").config();
 const {promisify} = require("util");
 const cloudinary = require("cloudinary").v2;
 const Users = require("../model/users");
 const {HttpCode} = require("../helpers/constants");
+const {nanoid} = require("nanoid");
+const EmailService = require("../servises/email");
 
-const createFolderIsExist = require("../helpers/createDir");
+// const createFolderIsExist = require("../helpers/createDir");
 
 const SECRET_KEY = process.env.JWT_SECRET;
 
@@ -32,7 +34,14 @@ const reg = async (req, res, next) => {
         message: "Email is already use",
       });
     }
-    const newUser = await Users.create(req.body);
+    const verifyToken = nanoid();
+    const emailService = new EmailService(process.env.NODE_ENV);
+    await emailService.sendEmail(verifyToken, email);
+    const newUser = await Users.create({
+      ...req.body,
+      verify: false,
+      verifyToken,
+    });
     return res.status(HttpCode.CREATED).json({
       status: "success",
       code: HttpCode.CREATED,
@@ -41,10 +50,15 @@ const reg = async (req, res, next) => {
         email: newUser.email,
         name: newUser.name,
         avatar: newUser.avatar,
-        subscription: newUser.subscription,
       },
     });
   } catch (e) {
+    if (e.name === "ValidationError" || e.name === "MongoError") {
+      return next({
+        status: HttpCode.BAD_REQUEST,
+        message: e.message.replace(/"/g, ""),
+      });
+    }
     next(e);
   }
 };
@@ -55,6 +69,7 @@ const login = async (req, res, next) => {
     const user = await Users.findByEmail(email);
     const isValidPassword = await user?.validPassword(password);
     if (!user || !isValidPassword) {
+      // !user.verify
       return res.status(HttpCode.UNAUTHORIZED).json({
         status: "error",
         code: HttpCode.UNAUTHORIZED,
@@ -138,10 +153,32 @@ const saveAvatarToCloud = async (req) => {
 
   try {
     await fs.unlink(path.file);
-  } catch (error) {
-    console.log(error.message);
+  } catch (e) {
+    console.log(e.message);
   }
   return result;
+};
+
+const verify = async (req, res, next) => {
+  try {
+    const user = await Users.findByVerifyToken(req.params.verifyToken);
+    if (user) {
+      await Users.updateVerifyToken(user.id, true, null);
+      return res.json({
+        status: "success",
+        code: HttpCode.OK,
+        message: "Verification successful!",
+      });
+    }
+    return res.status(HttpCode.BAD_REQUEST).json({
+      status: "error",
+      code: HttpCode.BAD_REQUEST,
+      data: "Bad request",
+      message: "Link is not valid",
+    });
+  } catch (e) {
+    next(e);
+  }
 };
 
 module.exports = {
@@ -150,4 +187,5 @@ module.exports = {
   logout,
   getCurrentUser,
   avatars,
+  verify,
 };
